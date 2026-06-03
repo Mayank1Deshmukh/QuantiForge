@@ -7,6 +7,7 @@ import { useSystemStore } from "@/stores/useSystemStore"
 import { GlobalHeader } from "@/components/layout/GlobalHeader"
 import { TabBar } from "@/components/layout/TabBar"
 import { TrainingDrawer } from "@/components/layout/TrainingDrawer"
+import { SettingsDialog } from "@/components/settings/SettingsDialog"
 import { Toaster } from "sonner"
 
 export default function AppShellLayout({
@@ -64,6 +65,7 @@ export default function AppShellLayout({
       </main>
 
       <TrainingDrawer />
+      <SettingsDialog />
       <Toaster
         position="bottom-right"
         theme="dark"

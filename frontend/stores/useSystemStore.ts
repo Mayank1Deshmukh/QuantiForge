@@ -17,6 +17,7 @@ interface SystemState {
 
   isLiveModeActive: boolean
   isSimulationActive: boolean
+  isSettingsOpen: boolean
 
   setDaemonStatus: (
     status: DaemonStatus,
@@ -31,6 +32,7 @@ interface SystemState {
   setSimulationSpeed: (speed: SimSpeed) => void
   setDaemonUrl: (url: string) => void
   setDefaultTicker: (ticker: string) => void
+  setSettingsOpen: (open: boolean) => void
 }
 
 export const useSystemStore = create<SystemState>()((set) => ({
@@ -45,6 +47,7 @@ export const useSystemStore = create<SystemState>()((set) => ({
 
   isLiveModeActive: false,
   isSimulationActive: false,
+  isSettingsOpen: false,
 
   setDaemonStatus: (status, meta) =>
     set({
@@ -59,4 +62,5 @@ export const useSystemStore = create<SystemState>()((set) => ({
   setSimulationSpeed: (speed) => set({ simulationSpeed: speed }),
   setDaemonUrl: (url) => set({ daemonUrl: url }),
   setDefaultTicker: (ticker) => set({ defaultTicker: ticker }),
+  setSettingsOpen: (open) => set({ isSettingsOpen: open }),
 }))
