@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+/* Class-based dark mode (Tailwind v4) */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* Fonts */
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, "Cascadia Code",
+    "Source Code Pro", Menlo, Monaco, Consolas, monospace;
+
+  /* QuantiForge color tokens */
+  --color-bg-base: #0a0a0a;
+  --color-bg-surface: #171717;
+  --color-bg-raised: #262626;
+  --color-border-subtle: #404040;
+  --color-text-primary: #fafafa;
+  --color-text-secondary: #a3a3a3;
+  --color-text-mono: #d4d4d4;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-info: #3b82f6;
+  --color-chart-actual: #ffffff;
+  --color-chart-arima: #64748b;
+  --color-chart-cyan: #06b6d4;
+  --color-chart-magenta: #d946ef;
+  --color-chart-lime: #84cc16;
+  --color-chart-amber: #f59e0b;
+}
+
+/* Base styles */
+:root {
+  --background: var(--color-bg-base);
+  --foreground: var(--color-text-primary);
+}
+
+body {
+  background-color: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-subtle) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--color-border-subtle);
+  border-radius: 3px;
+}

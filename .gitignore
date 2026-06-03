@@ -1,0 +1,19 @@
+# Python daemon artifacts
+daemon/models/*.pt
+daemon/models/*.joblib
+daemon/models/*.json
+daemon/models/registry.db
+daemon/__pycache__/
+daemon/**/__pycache__/
+daemon/.venv/
+daemon/venv/
+*.pyc
+
+# Frontend
+frontend/.next/
+frontend/node_modules/
+frontend/.env.local
+
+# General
+.DS_Store
+*.log
