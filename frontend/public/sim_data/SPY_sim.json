@@ -1,0 +1,9 @@
+[
+  {"ticker":"SPY","timestamp":"2025-01-15T14:30:00Z","open":589.20,"high":590.45,"low":588.60,"close":589.87,"volume":15234521},
+  {"ticker":"SPY","timestamp":"2025-01-15T15:30:00Z","open":589.87,"high":592.30,"low":589.10,"close":591.45,"volume":12847302},
+  {"ticker":"SPY","timestamp":"2025-01-15T16:30:00Z","open":591.45,"high":593.80,"low":590.20,"close":592.74,"volume":11203847},
+  {"ticker":"SPY","timestamp":"2025-01-15T17:30:00Z","open":592.74,"high":593.10,"low":588.95,"close":589.32,"volume":13567821},
+  {"ticker":"SPY","timestamp":"2025-01-15T18:30:00Z","open":589.32,"high":591.60,"low":587.40,"close":590.91,"volume":14892034},
+  {"ticker":"SPY","timestamp":"2025-01-15T19:30:00Z","open":590.91,"high":594.20,"low":590.50,"close":593.65,"volume":16234789},
+  {"ticker":"SPY","timestamp":"2025-01-15T20:30:00Z","open":593.65,"high":595.10,"low":592.80,"close":594.47,"volume":21456302}
+]

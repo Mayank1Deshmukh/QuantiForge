@@ -148,6 +148,19 @@ async def registry_get(run_id: str):
 async def registry_delete(run_id: str):
     delete_run(MODELS_DIR, run_id)
 
+@app.get("/api/registry/{run_id}/predictions")
+async def registry_predictions(run_id: str):
+    from fastapi import HTTPException
+    metrics_path = os.path.join(MODELS_DIR, f"{run_id}_metrics.json")
+    if not os.path.exists(metrics_path):
+        raise HTTPException(status_code=404, detail="Metrics file not found")
+    with open(metrics_path) as f:
+        data = json.load(f)
+    predictions = data.get("predictions", [])
+    if not predictions:
+        raise HTTPException(status_code=404, detail="No predictions stored for this run")
+    return {"run_id": run_id, "predictions": predictions}
+
 # ---------------------------------------------------------------------------
 # ARIMA
 # ---------------------------------------------------------------------------

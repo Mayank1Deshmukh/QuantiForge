@@ -30,10 +30,18 @@ export function SettingsDialog() {
   const setOpen = useSystemStore((s) => s.setSettingsOpen)
   const [pingResult, setPingResult] = useState<string | null>(null)
   const daemonUrl = useSystemStore((s) => s.daemonUrl)
+  const storeSimSpeed = useSystemStore((s) => s.simulationSpeed)
   const setDaemonUrl = useSystemStore((s) => s.setDaemonUrl)
   const setSimulationSpeed = useSystemStore((s) => s.setSimulationSpeed)
   const setDefaultTicker = useSystemStore((s) => s.setDefaultTicker)
   const [localUrl, setLocalUrl] = useState(daemonUrl)
+  const [activeSpeed, setActiveSpeed] = useState<1 | 10 | 30 | 60>(() => {
+    if (typeof window !== "undefined") {
+      const s = Number(localStorage.getItem("qf_sim_speed"))
+      if ([1, 10, 30, 60].includes(s)) return s as 1 | 10 | 30 | 60
+    }
+    return storeSimSpeed
+  })
 
   const testConnection = () => {
     setPingResult("Testing…")
@@ -131,8 +139,16 @@ export function SettingsDialog() {
                   {([1, 10, 30, 60] as const).map((s) => (
                     <button
                       key={s}
-                      onClick={() => { localStorage.setItem("qf_sim_speed", String(s)); setSimulationSpeed(s) }}
-                      className="px-3 py-1 bg-[#262626] hover:bg-[#404040] border border-[#404040] rounded text-sm font-mono text-[#d4d4d4] transition-colors"
+                      onClick={() => {
+                        localStorage.setItem("qf_sim_speed", String(s))
+                        setSimulationSpeed(s)
+                        setActiveSpeed(s)
+                      }}
+                      className={`px-3 py-1 border rounded text-sm font-mono transition-colors ${
+                        activeSpeed === s
+                          ? "bg-[#06b6d4]/10 border-[#06b6d4] text-[#06b6d4]"
+                          : "bg-[#262626] hover:bg-[#404040] border-[#404040] text-[#d4d4d4]"
+                      }`}
                     >
                       {s}×
                     </button>

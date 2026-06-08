@@ -50,10 +50,12 @@ def _kalman_denoise(
     kf = kf.em(train_close.reshape(-1, 1), n_iter=10)
 
     # Extract fitted parameters
+    # kf.initial_state_mean has shape (1,) after EM — numpy >= 2.0 requires a
+    # 0-D array for float(); use .flat[0] to extract the scalar safely.
     params = {
         "transition_covariance": kf.transition_covariance.tolist(),
         "observation_covariance": kf.observation_covariance.tolist(),
-        "initial_state_mean": float(kf.initial_state_mean),
+        "initial_state_mean": float(np.asarray(kf.initial_state_mean).flat[0]),
         "initial_state_covariance": kf.initial_state_covariance.tolist(),
     }
 

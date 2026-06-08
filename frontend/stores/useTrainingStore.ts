@@ -63,12 +63,14 @@ interface TrainingState {
   epochMetrics: EpochMetric[]
   logLines: string[]
   errorMessage: string | null
+  completionMetrics: { rmse: number; mae: number; mape: number; directional_accuracy: number } | null
   isDrawerOpen: boolean
   isDrawerMinimized: boolean
   runpodJobId: string | null
 
   dispatchTraining: (runId: string, config: DraftConfig) => void
   setRunpodJobId: (jobId: string) => void
+  appendRunpodStatusLine: (line: string) => void
   handleEpochMetric: (event: EpochMetricEvent) => void
   handleTrainingComplete: (event: TrainingCompleteEvent) => void
   handleTrainingFailed: (event: TrainingFailedEvent) => void
@@ -92,6 +94,7 @@ export const useTrainingStore = create<TrainingState>()((set) => ({
   epochMetrics: [],
   logLines: [],
   errorMessage: null,
+  completionMetrics: null,
   isDrawerOpen: false,
   isDrawerMinimized: false,
   runpodJobId: null,
@@ -112,6 +115,12 @@ export const useTrainingStore = create<TrainingState>()((set) => ({
     }),
 
   setRunpodJobId: (jobId) => set({ runpodJobId: jobId }),
+
+  appendRunpodStatusLine: (line) =>
+    set((s) => ({
+      status: "training" as TrainingStatus,
+      logLines: appendLog(s.logLines, line),
+    })),
 
   handleEpochMetric: (event) =>
     set((s) => {
@@ -137,6 +146,7 @@ export const useTrainingStore = create<TrainingState>()((set) => ({
       const line = `Training complete — RMSE: ${m.rmse.toFixed(3)} | DA: ${(m.directional_accuracy * 100).toFixed(1)}%`
       return {
         status: "completed",
+        completionMetrics: m,
         logLines: appendLog(s.logLines, line),
       }
     }),
@@ -168,6 +178,7 @@ export const useTrainingStore = create<TrainingState>()((set) => ({
       epochMetrics: [],
       logLines: [],
       errorMessage: null,
+      completionMetrics: null,
       isDrawerOpen: false,
       isDrawerMinimized: false,
       runpodJobId: null,

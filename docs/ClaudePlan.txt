@@ -1,0 +1,893 @@
+
+     QuantiForge MVP — Implementation Plan
+  
+     Context
+
+     QuantiForge is a greenfield academic capstone project: a low-code deep-learning simulation platform that lets a student
+     visually configure, train, and compare time-series neural network architectures against ARIMA on hourly US equity data. The
+     presentation target is a polished Windows desktop demo on a projected screen.                            
+
+     The architecture is fully defined across five spec documents in /docs. The implementation starts from an empty directory.
+     The goal of this plan is to build the MVP in logical, testable milestones that progressively assemble the full system.
+
+     Source-of-truth precedence (per CLAUDE.md): DataEngineering_Specs > SystemArchitecture_Specs > PRD > UI_UX_Specs.
+
+     ---
+     Repository Structure
+
+     QuantiForge/
+     ├── docs/                          # Spec files (already exists)
+     ├── frontend/                      # Next.js 14+ App Router app
+     │   ├── app/
+     │   │   ├── layout.tsx             # Root Server Component shell
+     │   │   ├── globals.css
+     │   │   └── (app)/
+     │   │       ├── layout.tsx         # App shell: header + tabs + Training Drawer
+     │   │       ├── forge/page.tsx     # Architecture Forge tab
+     │   │       └── evaluation/page.tsx # Evaluation Deck tab
+     │   ├── components/
+     │   │   ├── layout/                # GlobalHeader, TabBar, TrainingDrawer, ActiveJobPill
+     │   │   ├── forge/                 # WizardShell + 6 StepCard components
+     │   │   ├── evaluation/            # EvaluationDeck, MasterChart, ControlPanel, MetricsTable
+     │   │   └── settings/              # SettingsDialog
+     │   ├── lib/
+     │   │   ├── daemonSocket.ts        # Singleton WS manager (not in Zustand)
+     │   │   └── chartBridge.ts         # Chart.js instance ref + appendInferencePoint()
+     │   ├── stores/
+     │   │   ├── useSystemStore.ts
+     │   │   ├── useBuilderStore.ts
+     │   │   ├── useTrainingStore.ts
+     │   │   └── useRegistryStore.ts
+     │   ├── public/
+     │   │   └── sim_data/              # {ticker}_sim.json files (one trading day each)
+     │   ├── tailwind.config.ts
+     │   ├── next.config.ts
+     │   └── package.json
+     ├── daemon/                        # Python local compute daemon
+     │   ├── daemon.py                  # Entry point: FastAPI + Uvicorn
+     │   ├── requirements.txt
+     │   ├── config.yaml                # CORS origins, daemon port
+     │   ├── data/
+     │   │   ├── ingestion.py           # yfinance fetch + gap handling
+     │   │   ├── denoising.py           # None / Kalman / DWT
+     │   │   ├── scaling.py             # MinMaxScaler per feature
+     │   │   └── windowing.py           # Sliding window tensor construction
+     │   ├── training/
+     │   │   ├── architectures.py       # LSTM, GRU, BiLSTM, TCN (nn.Module subclasses)
+     │   │   ├── tft_path.py            # TFT-specific TimeSeriesDataSet + Lightning path
+     │   │   ├── trainer.py             # Generic PyTorch training loop + EPOCH_METRIC emit
+     │   │   └── metrics.py             # RMSE, MAE, MAPE, DA on inverse-transformed USD
+     │   ├── inference/
+     │   │   └── engine.py              # Per-run_id rolling buffer + forward pass
+     │   ├── registry/
+     │   │   └── db.py                  # SQLite init + CRUD (registry.db)
+     │   ├── arima/
+     │   │   └── baseline.py            # ARIMA(5,1,0) fit + predict + score
+     │   └── models/                    # Runtime artifact directory (git-ignored)
+     │       └── registry.db
+     └── runpod/                        # Optional cloud compute worker
+         ├── worker.py                  # Mirrors daemon training pipeline
+         ├── Dockerfile
+         └── requirements.txt
+
+     ---
+     Phase 0 — Repository Scaffolding
+
+     Goal: Create the full directory skeleton with config files. No application logic yet.
+
+     0.1 — Frontend Bootstrap
+
+     # From QuantiForge/
+     npx create-next-app@latest frontend \
+       --typescript --tailwind --app --no-src-dir \
+       --import-alias "@/*"
+     cd frontend
+     npx shadcn@latest init          # dark theme, CSS variables
+     npx shadcn@latest add card select toggle-group slider input \
+       radio-group progress scroll-area checkbox switch badge \
+       dialog alert popover toast sonner
+     npm install zustand recharts chart.js chartjs-plugin-zoom
+     # Note: Chart.js ships its own TypeScript types — do NOT install @types/chart.js
+
+     Configure tailwind.config.ts:
+     - Add JetBrains Mono via Google Fonts (Next.js localFont or next/font/google)
+     - Extend fontFamily.mono with JetBrains Mono
+     - Set darkMode: 'class'; ensure root has dark class
+
+     Set globals.css CSS custom properties matching the color palette from UI_UX_Specs §8.1.
+
+     0.2 — Daemon Bootstrap
+
+     mkdir daemon && cd daemon
+     python -m venv .venv
+
+     # On Windows with NVIDIA GPU: install PyTorch with the correct CUDA build first
+     pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+     # Then install all other deps
+     pip install fastapi "uvicorn[standard]" websockets pykalman PyWavelets statsmodels \
+       scikit-learn joblib yfinance pandas numpy PyYAML \
+       pytorch-forecasting pytorch-lightning \
+       torch_optimizer   # provides Ranger (RAdam + Lookahead)
+     pip freeze > requirements.txt
+     # Dev-only tools go in a separate file (pip has no --dev flag)
+     pip install pytest httpx
+     pip freeze | grep -E "pytest|httpx" > requirements-dev.txt
+
+     ▎ Windows CUDA note: Using pip install torch without the --index-url flag will download the CPU-only build from PyPI. Always
+     ▎ specify https://download.pytorch.org/whl/cu121 (or cu118 depending on the installed CUDA toolkit version).
+
+     Create config.yaml:
+     port: 8765
+     host: "127.0.0.1"
+     cors_origins:
+       - "http://localhost:3000"
+       - "https://quantiforge.vercel.app"   # placeholder; update at deploy
+     models_dir: "./models"
+
+     0.3 — Directory Structure
+
+     Create all empty module files (__init__.py, placeholder .ts files, etc.) so import paths are valid from the start. Create
+     daemon/models/.gitkeep and add daemon/models/*.pt, *.joblib, *.json, registry.db to .gitignore.
+
+     Create frontend/public/sim_data/ directory (JSON files added in Phase 11).
+
+     Verification: next dev serves a blank page; python daemon.py (skeleton) starts without error on port 8765.
+
+     ---
+     Phase 1 — Python Daemon: Foundation & WebSocket Handshake
+
+     Goal: A running daemon that accepts WebSocket connections, responds to PING, and serves a health endpoint.
+
+     1.1 — Entry Point (daemon.py)
+
+     - FastAPI app with CORSMiddleware (origins from config.yaml)
+     - uvicorn.run() on 127.0.0.1:8765
+     - WebSocket route: @app.websocket("/ws")
+     - REST stub: @app.get("/health")
+
+     1.2 — WebSocket Handshake
+
+     On WebSocket.accept():
+     1. Client sends { "action": "PING", "timestamp": "..." }
+     2. Daemon auto-detects torch.cuda.is_available() and torch.cuda.get_device_name(0)
+     3. Daemon responds:
+     {
+       "status": "READY",
+       "cuda_available": true,
+       "device_name": "NVIDIA GeForce RTX 4070 Ti",
+       "daemon_version": "1.0.0"
+     }
+
+     1.3 — Registry DB Init
+
+     registry/db.py:
+     - init_db(models_dir) — creates models/registry.db if it doesn't exist
+     - Creates runs table (schema from SystemArchitecture_Specs §5.1)
+     - Called at daemon startup before Uvicorn starts
+
+     1.4 — Registry REST Stubs
+
+     Wire up FastAPI routes with placeholder responses:
+     - GET /api/registry → returns []
+     - POST /api/registry → returns 201
+     - GET /api/registry/{run_id} → returns 404
+     - DELETE /api/registry/{run_id} → returns 204
+     - POST /api/arima → returns 202
+
+     Verification: GET http://127.0.0.1:8765/health returns {"status": "ok"}. WebSocket client sends PING, receives READY JSON.
+
+     ---
+     Phase 2 — Python Daemon: Data Pipeline
+
+     Goal: Full data ingestion → gap handling → split → denoising → scaling → windowing pipeline. All logic is in daemon/data/.
+
+     2.1 — Data Ingestion (data/ingestion.py)
+
+     fetch_ohlcv(ticker: str, period: str = "2y", interval: str = "1h") -> pd.DataFrame
+
+     - Uses yfinance.download(ticker, period=period, interval=interval, auto_adjust=False) (unadjusted)
+     - Returns DataFrame with columns: open, high, low, close, volume, timestamp
+     - Applies gap handling rules (DataEngineering_Specs §2.3) in order:
+       a. Filter to 09:30–16:00 ET Monday–Friday
+       b. Drop trading days with fewer than 6 regular-session bars
+       c. Forward-fill isolated single missing bars (max 1 bar); drop full day if gap > 1 bar
+       d. Drop rows with non-positive prices or negative volume
+       e. Reset integer index; add continuous boolean flag: True for every row that follows the previous row with no invalid gap.
+     The only rows marked False are the first row in the entire DataFrame, and any row that follows a dropped partial session or
+     an unfilled multi-bar provider gap. Normal overnight/weekend gaps between clean consecutive trading days are not marked
+     discontinuous — the gap is already eliminated by step 1 (market-hours filter), so consecutive clean rows should be treated
+     as continuous for windowing purposes.
+     - Returns clean DataFrame + metadata dict {ticker, row_count, date_range}
+
+     Cache fetched DataFrame in daemon process memory keyed by ticker (invalidated after 1 hour or daemon restart).
+
+     2.2 — Train/Val/Test Split (data/ingestion.py)
+
+     chronological_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]
+
+     - 80/10/10 by row count, never shuffle
+     - Returns (train_df, val_df, test_df)
+
+     2.3 — Denoising (data/denoising.py)
+
+     denoise(train_df, val_df, test_df, method: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]
+
+     method is "None", "Kalman", or "DWT". Returns the three DataFrames with close replaced, plus a denoiser_params dict for
+     persistence.
+
+     - None: identity pass-through; denoiser_params = {}
+     - Kalman: pykalman.KalmanFilter with transition_matrices=[[1]], observation_matrices=[[1]],
+     initial_state_mean=train_close[0]; fit (em()) on train split only; apply filter() transform to val and test
+     - DWT: pywt.wavedec(train_close, 'db4', level=2); compute σ from MAD of cD1; apply universal threshold; pywt.waverec; trim
+     to original length. Reuse same σ for val/test. Store sigma in denoiser_params.
+
+     2.4 — Scaling (data/scaling.py)
+
+     fit_scalers(train_df) -> dict[str, MinMaxScaler]
+     scale_split(df, scalers) -> np.ndarray
+     inverse_transform_close(values, scalers) -> np.ndarray
+
+     - One MinMaxScaler(feature_range=(-1, 1)) per column: open, high, low, close, volume
+     - Fit on train only (fit_transform); transform-only for val/test/live
+     - joblib.dump to ./models/{run_id}_scaler.joblib
+
+     2.5 — Windowing (data/windowing.py)
+
+     build_windows(scaled_array, sequence_length: int, continuity_flags: list[bool]) -> tuple[np.ndarray, np.ndarray]
+
+     - Returns (X, Y) with shapes (N, L, 5) and (N, 1)
+     - Respects continuity_flags: a window starting at index i is valid only if continuity_flags[i+1 .. i+L] are all True (i.e.,
+     no dropped partial sessions or unfilled gaps within the window). Normal overnight/weekend gaps produce no discontinuity
+     marker, so windows freely span day boundaries — that is the correct behaviour for a 24/48/72-bar hourly lookback.
+     - Returns PyTorch TensorDataset for use with DataLoader
+
+     Verification: Run the full pipeline on SPY; assert train shape ≈ (2400, L, 5) and test shape ≈ (300, L, 5). Verify scaler
+     round-trip: inverse_transform(scale(close)) ≈ close.
+
+     ---
+     Phase 3 — Python Daemon: ML Engines
+
+     Goal: All five architectures + training loop + metrics + artifact saving. ARIMA baseline.
+
+     3.1 — Architecture Implementations (training/architectures.py)
+
+     Each is a nn.Module taking (batch, seq_len, n_features=5) input, outputting (batch, 1).
+
+     ┌─────────────┬────────────────────────────────────────┬────────────────────────────────────┐
+     │    Class    │              Key Modules               │               Notes                │
+     ├─────────────┼────────────────────────────────────────┼────────────────────────────────────┤
+     │ LSTMModel   │ nn.LSTM, nn.Dropout, nn.Linear         │ hidden_size from config            │
+     ├─────────────┼────────────────────────────────────────┼────────────────────────────────────┤
+     │ GRUModel    │ nn.GRU, nn.Dropout, nn.Linear          │ Same pattern as LSTM               │
+     ├─────────────┼────────────────────────────────────────┼────────────────────────────────────┤
+     │ BiLSTMModel │ nn.LSTM(bidirectional=True), nn.Linear │ Linear input dim = hidden_size * 2 │
+     ├─────────────┼────────────────────────────────────────┼────────────────────────────────────┤
+     │ TCNModel    │ nn.Conv1d, nn.ReLU, nn.LSTM, nn.Linear │ Conv1d extracts local feature maps │
+     └─────────────┴────────────────────────────────────────┴────────────────────────────────────┘
+
+     build_model(config: dict) -> nn.Module — factory function routing on config["backbone"].
+
+     3.2 — TFT Path (training/tft_path.py)
+
+     Activated when backbone == "TFT". Does not use the generic tensor pipeline.
+
+     1. After denoising + scaling, reconstruct a DataFrame from the scaled train+val arrays (rows in chronological order)
+     2. Add two synthetic columns required by TimeSeriesDataSet:
+       - time_idx: integer range(len(df))
+       - ticker_id: constant string "0" (group identifier; TFT needs at least one group)
+     3. Construct TimeSeriesDataSet:
+     TimeSeriesDataSet(
+         df,
+         time_idx="time_idx",
+         target="close",
+         group_ids=["ticker_id"],
+         max_encoder_length=sequence_length,   # L from config
+         max_prediction_length=1,
+         time_varying_unknown_reals=["open", "high", "low", "close", "volume"],
+         target_normalizer=None,               # already MinMax-scaled
+     )
+     4. Split into train/val TimeSeriesDataSets using training_cutoff = int(0.8 * len(df)); val set uses the same dataset with
+     predict=True
+     5. Create TemporalFusionTransformer.from_dataset(training_dataset, learning_rate=lr, ...)
+     6. Train with pytorch_lightning.Trainer(max_epochs=epochs, callbacks=[...]). Emit EPOCH_METRIC by subclassing Callback and
+     overriding on_train_epoch_end; call back into the async WS sender via asyncio.run_coroutine_threadsafe.
+     7. Save model.state_dict() on completion; denoiser_params saved as usual
+
+     Errors during TimeSeriesDataSet construction or trainer.fit must be caught and emitted as TRAINING_FAILED.
+
+     3.3 — Training Loop (training/trainer.py)
+
+     async def run_training(ws, run_id, config, device) — called from the WebSocket handler.
+
+     Generic path (LSTM/GRU/BiLSTM/TCN):
+     1. Call data pipeline (ingest → split → denoise → scale → window)
+     2. Build model; move to device; set optimizer (AdamW/SGD via torch.optim; Ranger via ranger-adabelief or torch_optimizer)
+     3. MSELoss training loop; emit EPOCH_METRIC JSON per epoch via await ws.send_json(...)
+     4. On completion: compute test metrics (Phase 3.4); save artifact bundle; write registry record; emit TRAINING_COMPLETE
+     5. Catch torch.cuda.OutOfMemoryError → emit TRAINING_FAILED with descriptive message
+
+     Handle STOP_TRAINING message by setting a cancellation asyncio.Event.
+
+     3.4 — Metrics (training/metrics.py)
+
+     All computed on inverse-transformed USD values from the test split.
+
+     compute_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict
+
+     Returns {"rmse": float, "mae": float, "mape": float, "directional_accuracy": float} using the exact formulas from
+     DataEngineering_Specs §8.
+
+     3.5 — Artifact Saving
+
+     On TRAINING_COMPLETE, save the full five-file bundle:
+     torch.save(model.state_dict(), f"./models/{run_id}.pt")
+     joblib.dump(scalers, f"./models/{run_id}_scaler.joblib")
+     json.dump(config, open(f"./models/{run_id}_config.json", "w"))
+     json.dump(metrics, open(f"./models/{run_id}_metrics.json", "w"))
+     json.dump(denoiser_params, open(f"./models/{run_id}_denoiser.json", "w"))  # {} for None
+
+     denoiser_params must be saved so the inference engine can re-apply the correct denoising transform on live bars. For Kalman,
+     this includes fitted Q/R covariances and the final filter state vector. For DWT, this is the training-fit σ threshold.
+
+     Then db.upsert_run(run_id, ticker, backbone, denoiser, hyperparams, metrics, weights_path, status="completed").
+
+     3.6 — ARIMA Baseline (arima/baseline.py)
+
+     run_arima(ticker: str) -> dict
+
+     1. Fetch + preprocess data (no denoising, no scaling — ARIMA operates on raw close USD)
+     2. Fit ARIMA(5,1,0) on training close prices using statsmodels.tsa.arima.model.ARIMA
+     3. Generate out-of-sample walk-forward forecasts over the test horizon using the expanding-window approach:
+     history = list(train_close)
+     predictions = []
+     for actual in test_close:
+         model = ARIMA(history, order=(5, 1, 0))
+         fit = model.fit()
+         predictions.append(fit.forecast(1)[0])
+         history.append(actual)   # expand window by one true observation
+     This avoids in-sample leakage. Do not use fit.predict() on the test date range with the training-only model.
+
+     Runtime constraint: For ~300 test steps at order (5,1,0), a naïve per-step refit can take 60–120 seconds. To stay under 30
+     seconds, use statsmodels's append/online-update API instead of refitting from scratch each step:
+     result = ARIMA(train_close, order=(5,1,0)).fit()
+     for actual in test_close:
+         predictions.append(result.forecast(1)[0])
+         result = result.append([actual], refit=False)   # O(1) update
+     refit=False updates the filter state without re-estimating parameters — valid for this fixed-order MVP baseline. Test the
+     actual runtime early (Phase 3 verification) and fall back to the naïve refit only if refit=False results look unreasonable.
+
+     4. Compute the same four metrics against test-set actuals (identity inverse-transform since values are already USD)
+     5. Return {ticker, order, metrics, predictions}
+
+     Expected runtime < 30 seconds with refit=False.
+
+     Verification: Train an LSTM on SPY with 5 epochs; assert EPOCH_METRIC events arrive via WebSocket; assert artifacts exist in
+     ./models/; assert registry record in SQLite. Run ARIMA; assert metrics dict is populated.
+
+     ---
+     Phase 4 — Python Daemon: Inference Engine & Full Registry API
+
+     Goal: Live inference with rolling buffer, complete CRUD registry endpoints.
+
+     4.1 — Inference Engine (inference/engine.py)
+
+     class InferenceEngine:
+
+     Each active run_id entry holds:
+     {
+       "model":          nn.Module,          # loaded state_dict
+       "scalers":        dict[str, Scaler],  # per-feature MinMaxScaler
+       "config":         dict,               # backbone, sequence_length, denoiser
+       "denoiser_params": dict,              # training-fit Q/R or σ; {} for None
+       "raw_close_buf":  deque(maxlen=L),    # raw USD close values (for DWT / Kalman)
+       "scaled_buf":     deque(maxlen=L),   # each element is one scaled OHLCV row (shape (5,))
+       "kalman_state":   tuple | None,       # (x_hat, P) — carries Kalman filter state forward
+     }
+
+     load_run(run_id) — loads {run_id}.pt, {run_id}_scaler.joblib, {run_id}_denoiser.json, and {run_id}_config.json. Pre-seeds
+     raw_close_buf and scaled_buf with the last L bars of the historical dataset for that ticker.
+
+     infer(run_id, bar: dict) -> float — per-bar inference pipeline:
+     1. Extract raw OHLCV from bar
+     2. Denoising on close (using training-fit params):
+       - None: use raw close directly
+       - Kalman: apply one Kalman filter step using saved (Q, R) and the carried kalman_state; update state; use filtered close
+       - DWT: append raw close to raw_close_buf; when buffer is full apply DWT denoising over the entire buffer using the
+     training-fit σ threshold; use the last denoised value. DWT is not meaningful on a single bar — it operates on the rolling
+     close history of length L.
+     3. Apply scalers.transform([ohlcv_row]) using training-fit scaler
+     4. Append scaled row to scaled_buf
+     5. When scaled_buf is full (length == L): stack into (1, L, 5) tensor; call model.forward() with torch.no_grad();
+     inverse-transform predicted close → USD; return predicted_close
+     6. If buffer not yet full: return None (inference deferred until buffer warms up)
+
+     Multiple run_ids can have active entries simultaneously.
+
+     4.2 — WebSocket INFER Handler
+
+     In the main WebSocket message handler:
+     case "INFER":
+         result = engine.infer(run_id, bar)
+         if result is not None:            # None means buffer is still warming up — do not emit
+             await ws.send_json({
+                 "event": "INFER_RESULT",
+                 "run_id": run_id,
+                 "timestamp": next_hour_timestamp,
+                 "predicted_close": result
+             })
+         # (buffers are pre-seeded at load_run time, so this guard is rarely triggered
+         # in practice, but must be present for correctness on the first few live bars)
+
+     4.3 — Full Registry REST API
+
+     Implement all endpoints in registry/db.py:
+
+     - GET /api/registry → db.get_all_runs() → returns list of run records
+     - POST /api/registry → db.upsert_run(payload) → used by frontend after RunPod completion
+     - GET /api/registry/{run_id} → db.get_run(run_id)
+     - DELETE /api/registry/{run_id} → db.delete_run(run_id) + os.remove artifact files
+     - POST /api/arima → arima.run_arima(ticker) (async, with timeout guard)
+
+     Verification: Full REST API tested with httpx or Postman; INFER round-trip tested by sending a PING → START_TRAINING (2
+     epochs) → TRAINING_COMPLETE → INFER sequence.
+
+     ---
+     Phase 5 — Next.js: App Shell, Stores & Singletons
+
+     Goal: The full frontend skeleton with working Zustand stores and WebSocket singleton — no feature UI yet.
+
+     5.1 — Root Layout (app/layout.tsx)
+
+     Server Component. Applies:
+     - <html className="dark"> (dark mode only, no toggle)
+     - JetBrains Mono via next/font/google applied to font-mono class
+     - CSS variables from the spec color palette in globals.css
+
+     5.2 — App Shell (app/(app)/layout.tsx)
+
+     Client Component. Renders:
+     GlobalHeader (60px fixed)
+     TabBar (40px fixed)
+     [main content slot — renders active page]
+     TrainingDrawer (fixed bottom-0, mounts once, persists across tab changes)
+
+     Tab routing uses useRouter + usePathname to drive the two-tab state. Tab switch navigates to /forge or /evaluation.
+
+     5.3 — Zustand Stores
+
+     Create all four stores with the exact TypeScript interfaces from UI_UX_Specs §5:
+     - stores/useSystemStore.ts — DaemonStatus, CUDA meta, preferences, live/sim flags
+     - stores/useBuilderStore.ts — DraftConfig, wizard step state, editStep() downstream reset logic
+     - stores/useTrainingStore.ts — training status, epoch metrics array (for loss chart), log lines array (capped at 200),
+     drawer state
+     - stores/useRegistryStore.ts — models cache, ARIMA state, activeChartOverlays, colorAssignments, assignColor() color cycle
+     logic
+
+     Hydration: Root layout useEffect reads qf_daemon_url, qf_default_ticker, qf_sim_speed from localStorage and calls store
+     setters.
+
+     5.4 — lib/daemonSocket.ts
+
+     Singleton module (not a React hook, not a Zustand value):
+     - connect(url: string) — creates WebSocket; calls useSystemStore.setDaemonStatus on open/close
+     - send(payload: object) — ws.send(JSON.stringify(payload))
+     - onmessage router:
+       - EPOCH_METRIC → useTrainingStore.handleEpochMetric()
+       - TRAINING_COMPLETE → useTrainingStore.handleTrainingComplete() + useRegistryStore.fetchRegistry()
+       - TRAINING_FAILED → useTrainingStore.handleTrainingFailed()
+       - INFER_RESULT → chartBridge.appendInferencePoint()
+     - Reconnection: 3 attempts at 2s / 4s / 8s backoff; after final failure sets daemonStatus = 'offline' + shows toast
+     - Called from root layout on mount; re-connects if daemonUrl preference changes
+
+     5.5 — lib/chartBridge.ts
+
+     - Holds a WeakRef<Chart> | null to the active Chart.js instance
+     - setChartInstance(chart) — called by the EvaluationDeck canvas component on mount
+     - appendInferencePoint(event: InferResultEvent) — finds the dataset by run_id; calls
+     chart.data.datasets[idx].data.push(point) + chart.update('none'); no-ops if chart ref is null
+
+     Verification: App loads without error; all 4 stores are accessible via browser devtools Zustand extension; daemonSocket
+     auto-connects and shows green Daemon Online indicator if daemon is running.
+
+     ---
+     Phase 6 — Next.js: Architecture Forge Wizard
+
+     Goal: Complete 6-step wizard with all interactions working end-to-end.
+
+     6.1 — Wizard Shell (components/forge/WizardShell.tsx)
+
+     - Reads useBuilderStore.currentStep and completedSteps
+     - Renders:
+       a. StepIndicatorStrip (6 dots + labels, progress highlighted)
+       b. Completed steps as CollapsedStepCard (summary text + Edit link)
+       c. Active step as ActiveStepCard (expanded, interactive)
+       d. Future steps as LockedStepCard (dimmed, lock icon)
+     - CollapsedStepCard Edit link calls useBuilderStore.editStep(n) (resets downstream steps)
+
+     6.2 — Step 1: Ticker & Data Selection
+
+     - shadcn/ui Select: SPY / AAPL / NVDA / TSLA
+     - "Fetch & Preview" button: calls GET /api/data-preview?ticker={ticker} on daemon; returns {"ticker": ..., "preview_close":
+     [...]} (last 30 trading days close prices as number[])
+       - Loading: skeleton loader replacing sparkline area
+       - Success: Recharts AreaChart 120px, close prices, no axes labels, cyan fill
+       - Error: inline "Data unavailable for {ticker}. [Retry]" with useBuilderStore.setDataPreviewStatus('error', msg)
+     - Continue advances to Step 2; marks Step 1 complete with summary "{ticker} · 2yr · Hourly"
+
+     ▎ Daemon endpoint to add: GET /api/data-preview?ticker=SPY — fetch OHLCV (or use cache), apply gap handling, return
+     ▎ {"ticker": "SPY", "preview_close": [...last 30 trading days of close...]}.
+
+     6.3 — Step 2: Denoiser
+
+     - shadcn/ui ToggleGroup single-select horizontal: None / Kalman Filter / DWT (db4)
+     - Each option has a 1-line sub-label (static copy from spec)
+     - Collapsed summary: "{denoiser} Denoising"
+
+     6.4 — Step 3: Architecture Backbone
+
+     - shadcn/ui Select: TFT / TCN (CNN-LSTM) / BiLSTM / LSTM / GRU
+     - Collapsible info block: 2-sentence static description per backbone
+     - TFT warning Badge variant="warning" (amber) if TFT selected
+     - Collapsed summary: "{backbone}"
+
+     6.5 — Step 4: Hyperparameters
+
+     2-column CSS Grid layout:
+     - Sequence Length: ToggleGroup 24h / 48h / 72h
+     - Learning Rate: Input type="number" step=0.0001, range 0.0001–0.1
+     - Batch Size: ToggleGroup 16 / 32 / 64 / 128
+     - Epochs: Slider (1–100) synced two-way with Input
+     - Dropout: Slider (0.0–0.5, step 0.05) with numeric readout
+     - Optimizer: Select AdamW / Ranger / SGD
+
+     6.6 — Step 5: Compute Target
+
+     - RadioGroup: Local Daemon / RunPod Serverless
+     - Local option: shows current daemon status badge (green "Daemon Online" / red "Daemon Offline")
+     - RunPod option: shows RunPod key status badge; if no key configured, selecting RunPod opens Settings Dialog automatically
+     - Daemon offline + Local selected: Continue button disabled with tooltip "Start daemon.py to enable"
+
+     6.7 — Step 6: Review & Submit
+
+     - Read-only 2-column definition list of all draftConfig values
+     - UUID run_id shown (generated via useBuilderStore.generateRunId() on step activation)
+     - "Start Training" button (full-width, primary):
+       - Disabled if: daemon offline + local target, or RunPod key missing + RunPod target
+       - On click, branch by computeTarget:
+           - Local: useTrainingStore.dispatchTraining(runId, config) → daemonSocket.send({ action: "START_TRAINING", run_id,
+     configuration }) → useBuilderStore.resetWizard()
+         - RunPod: useTrainingStore.dispatchTraining(runId, config) → POST /api/runpod/trigger (Next.js API route, sends
+     runpodApiKey from localStorage) → receive { job_id } → start RunPod polling loop (Phase 11.2) → drawer enters RunPod polling
+     state → useBuilderStore.resetWizard()
+
+     Verification: Walk through all 6 steps in browser; verify each step's summary collapse; verify edit-step resets downstream;
+     verify "Start Training" sends WS message (check browser devtools Network tab).
+
+     ---
+     Phase 7 — Next.js: Training Drawer & Global Header
+
+     Goal: Full Training Drawer with live loss chart + epoch log; Global Header with Active Job Pill.
+
+     7.1 — Global Header (components/layout/GlobalHeader.tsx)
+
+     - Left: QuantiForge logotype (font-mono font-bold text-lg)
+     - Center: ActiveJobPill — rendered when useTrainingStore.status === 'training' || 'dispatched'
+       - Content: [Spinner] Training · {run_id_short} · {backbone} · Epoch {n}/{total} · [Cancel]
+       - Cancel button calls useTrainingStore.cancelTraining() → daemonSocket.send({ action: "STOP_TRAINING", run_id })
+     - Right: DaemonStatusIndicator (3 states: online/offline/training with pulsing amber dot) + Settings cog
+
+     7.2 — Training Drawer (components/layout/TrainingDrawer.tsx)
+
+     Mounted in app shell, fixed bottom-0 left-0 right-0. Not inside tab router.
+
+     State-driven height:
+     - isDrawerOpen && !isDrawerMinimized → 320px (transition-all 250ms ease-out)
+     - isDrawerMinimized → 48px pill
+     - status === 'idle' → display: none (hidden entirely)
+
+     Open state interior (per spec §3.2):
+     - Header row: {run_id_short} · {backbone} · {denoiser} · {ticker} + chevron + × (× only active post-completion/failure)
+     - Progress bar (shadcn/ui Progress) + Epoch {n}/{total} (%) + ETA (rolling avg of epoch durations)
+     - 2-column: Recharts LineChart (train_loss cyan #06b6d4, val_loss amber #f59e0b, isAnimationActive={false}) | ScrollArea
+     epoch log (monospace, auto-scroll, 200-line cap)
+     - Footer: [Cancel Training] left; Compute: {Local|RunPod} right
+
+     RunPod mode: Loss chart and epoch log replaced by polling status text ("Waiting for RunPod container…", "Training in
+     progress…"). ETA hidden. Polls every 5s via setInterval against RunPod status endpoint.
+
+     Post-completion: 3-second timer via setTimeout → useTrainingStore.resetTraining() → drawer hides; toast notification with
+     RMSE summary.
+
+     Failure state: Progress bar turns red; error message replaces ETA; × button active.
+
+     Verification: Train a 3-epoch LSTM; verify drawer opens, loss chart updates per epoch, log scrolls, drawer auto-closes with
+     toast after completion.
+
+     ---
+     Phase 8 — Next.js: Evaluation Deck
+
+     Goal: Full chart, control panel, and metrics table working with live registry data.
+
+     8.1 — Evaluation Deck Page (app/(app)/evaluation/page.tsx)
+
+     - Client Component; calls useRegistryStore.fetchRegistry() on mount (tab activation)
+     - Layout: DeckHeader | [MasterChart 75%] [ControlPanel 25%] | MetricsTable
+
+     8.2 — Deck Header
+
+     - Ticker selector (Select: SPY/AAPL/NVDA/TSLA) → setEvaluationTicker() → resets ARIMA state
+     - "Live Mode ⚡" toggle (Switch) → setLiveMode()
+     - "Simulation 🎬" toggle (only visible when live mode is off) → setSimulationMode()
+     - SIMULATION amber banner strip (conditionally rendered at top, pulsing dot at 1Hz)
+
+     8.3 — Master Chart Canvas (components/evaluation/MasterChart.tsx)
+
+     Chart.js canvas mounted in useEffect. chartBridge.setChartInstance(chart) on mount; chartBridge.setChartInstance(null) on
+     unmount.
+
+     Configuration:
+     - Dark background #0a0a0a
+     - Actual Close: white #FFFFFF, 2px solid, 0.15 opacity fill
+     - ARIMA: #64748b, 1.5px dashed
+     - DL models: cyan/magenta/lime/amber from CHART_COLORS, 1.5px solid
+     - Pan + zoom via chartjs-plugin-zoom
+     - Legend hidden (Control Panel is the legend)
+     - X-axis: HH:mm intraday / MMM D multi-day; Y-axis: USD right-aligned monospace
+
+     On activeChartOverlays change: update chart.data.datasets (add/remove series) + chart.update('none') — target ≤ 300ms.
+
+     On arimaResult available + arimaIncluded: add ARIMA dataset + chart.update('none').
+
+     Initial load: Fetch last 30 days of actual close for evaluationTicker from daemon (GET /api/data-preview?ticker=X) and
+     render as the base "Actual Close" series. Show skeleton while loading; never blank-screen block tab render.
+
+     8.4 — Control Panel (components/evaluation/ControlPanel.tsx)
+
+     - Collapsible: 25% width ↔ 32px collapsed rail (CSS transition-all 200ms)
+     - [⟨ Collapse] chevron toggle button
+     - Collapsed rail: color-coded dots for active overlays only
+     - Model list:
+       - ARIMA row pinned at top: checkbox + "ARIMA Baseline" + spinner while arimaStatus === 'computing' + RMSE when ready +
+     Retry on error
+       - "Compare All" button: useRegistryStore.toggleAllModels() → checks all completed models + triggers ARIMA if idle
+       - Per-model ToggleCard: color swatch + {run_id.slice(0,8)} · {backbone} + denoiser badge + ticker badge + RMSE + DA% +
+     trash icon (hover only) with delete confirmation Popover
+       - Empty state: "No trained models yet. Go to Architecture Forge to train your first model."
+
+     8.5 — Metrics Comparison Table (components/evaluation/MetricsTable.tsx)
+
+     Full-width table below chart. Auto-populated for activeChartOverlays (includes ARIMA when checked).
+
+     Columns: Model | Backbone | Denoiser | Ticker | RMSE | MAE | MAPE | Dir. Accuracy
+
+     Styling rules (from UI_UX_Specs §3.3):
+     - Numbers: font-mono
+     - RMSE: lowest = green accent, highest = red
+     - DA: ≥ 55% = green; ≤ 50% = red/muted
+
+     Verification: Open Evaluation Deck; verify registry fetches; toggle models on/off; check chart lines appear/disappear ≤
+     300ms; trigger ARIMA; verify spinner → metrics populated.
+
+     ---
+     Phase 9 — Next.js: Live Stream & Simulation Mode
+
+     Goal: Alpaca WebSocket live inference and setInterval simulation replay.
+
+     9.1 — Alpaca WebSocket (lib/alpacaSocket.ts)
+
+     Singleton module (mirrors daemonSocket.ts pattern):
+     - connect(key, secret, ticker) — opens Alpaca Markets Free Tier WebSocket
+     - Subscribes to {ticker} bars. Prefer the 1Hour bar subscription if the Alpaca free-tier WebSocket supports it (use
+     {"action":"subscribe","bars":["AAPL"]} with timeframe set to 1Hour in the data stream URL). If only 1-minute bars are
+     available on free tier, accumulate 60 one-minute bars then aggregate to a single hourly OHLCV bar (take the first open, the
+     max high, the min low, the last close, and the sum of volume across the 60 bars) before forwarding to the INFER path.
+     - On each complete hourly bar: calls dispatchInferForActiveOverlays(bar) — iterates useRegistryStore.activeChartOverlays and
+     sends INFER to daemon for each
+     - Auto-reconnect: 3 attempts, exponential backoff; toast notification on disconnect
+     - Called when isLiveModeActive becomes true in useSystemStore; disconnected when false
+
+     9.2 — Simulation Mode (lib/simulationRunner.ts)
+
+     - start(ticker, speed):
+       a. Load fetch('/sim_data/{ticker}_sim.json') — array of OHLCV bar objects
+       b. setInterval(() => dispatchInferForActiveOverlays(nextBar), intervalMs) where intervalMs = (3600 / speed) * 1000
+       c. On last bar: stop interval; toast "Simulation complete"
+     - stop() — clears interval
+     - setSpeed(speed) — clears and restarts interval at new speed
+     - Called when isSimulationActive becomes true; stopped when false
+
+     Speed multiplier: 1× = 3600s (real-time), 10× = 360s, 30× = 120s, 60× = 60s per simulated hour.
+
+     9.3 — dispatchInferForActiveOverlays(bar)
+
+     Shared helper called by both live and sim paths:
+     for (const runId of useRegistryStore.getState().activeChartOverlays) {
+       daemonSocket.send({ action: "INFER", run_id: runId, bar })
+     }
+
+     The daemon INFER_RESULT flows back through daemonSocket.onmessage → chartBridge.appendInferencePoint() →
+     chart.update('none').
+
+     Verification: Run simulation with 2 models toggled; verify inference lines append to chart in real time at 60× speed; verify
+     SIMULATION banner visible; speed control changes replay rate.
+
+     ---
+     Phase 10 — Next.js: Settings Dialog & Error States
+
+     Goal: Complete all settings persistence and all error state UI from the spec.
+
+     10.1 — Settings Dialog (components/settings/SettingsDialog.tsx)
+
+     shadcn/ui Dialog. Four sections:
+     1. Alpaca Markets: masked inputs for key + secret; read/write localStorage.qf_alpaca_key/secret on change
+     2. RunPod: masked API key input; localStorage.qf_runpod_key
+     3. Daemon: WebSocket URL override (default ws://localhost:8765) + "Test Connection" button that sends PING and shows result
+     inline
+     4. Preferences: Default ticker Select + Simulation Speed ToggleGroup (1×/10×/30×/60×)
+
+     All fields write to localStorage on onChange — no Save button.
+
+     10.2 — Error State Implementations
+
+     Per UI_UX_Specs §3.6 and SystemArchitecture_Specs §7:
+
+     ┌──────────────────────┬───────────────────────────────────────────────────────────────────────────────────────────────────┐
+     │        Error         │                                          Implementation                                           │
+     ├──────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────────────┤
+     │ Daemon offline on    │ Persistent red Alert banner below TabBar: "Local daemon offline. Run python daemon.py to enable   │
+     │ mount                │ local training and inference." — not dismissible                                                  │
+     ├──────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────────────┤
+     │ Daemon WS drops      │ Auto-reconnect toasts via daemonSocket.ts reconnect logic (already in Phase 5); drawer shows      │
+     │ mid-training         │ failure state on 3rd failed attempt                                                               │
+     ├──────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────────────┤
+     │ yfinance fetch fails │ useBuilderStore.setDataPreviewStatus('error', msg) → inline error replacing sparkline             │
+     │  (Step 1)            │                                                                                                   │
+     ├──────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────────────┤
+     │ Alpaca WS disconnect │ Toast "Live connection lost. Reconnecting…" via alpacaSocket.ts                                   │
+     ├──────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────────────┤
+     │ RunPod job fails     │ useTrainingStore.handleTrainingFailed() → drawer error state + registry row "Failed" badge        │
+     ├──────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────────────┤
+     │ Model weights        │ useRegistryStore marks model; ToggleCard shows "Weights unavailable" badge; checkbox disabled     │
+     │ unavailable          │                                                                                                   │
+     ├──────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────────────┤
+     │ CUDA OOM             │ TRAINING_FAILED event → drawer error with "GPU out of memory. Try reducing Batch Size or Sequence │
+     │                      │  Length."                                                                                         │
+     ├──────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────────────┤
+     │ No models in         │ Empty state in Control Panel with illustration + CTA to Architecture Forge                        │
+     │ registry             │                                                                                                   │
+     └──────────────────────┴───────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+     Verification: Kill daemon mid-training; verify reconnect attempts + failure state. Disconnect Alpaca (or mock disconnect);
+     verify toast + auto-reconnect.
+
+     ---
+     Phase 11 — RunPod Integration
+
+     Goal: Cloud compute path from "Start Training" (RunPod selected) through artifact download and registry registration.
+
+     11.1 — Next.js API Route (app/api/runpod/trigger/route.ts)
+
+     - POST: Receives { modelConfig, runpodApiKey, endpointId } from client (key never stored; used in this handler only)
+     - Calls https://api.runpod.ai/v2/{endpoint_id}/run with Authorization: Bearer {key} and ModelConfig JSON body
+     - Returns { job_id } to client
+
+     11.2 — RunPod Polling (Frontend)
+
+     In useTrainingStore or a dedicated hook:
+     - setInterval every 5s: GET https://api.runpod.ai/v2/{endpoint_id}/status/{job_id} via a Next.js API proxy route
+     - On COMPLETED: download all 5 artifacts from the signed URL (.pt, _scaler.joblib, _config.json, _metrics.json,
+     _denoiser.json); POST /api/registry to daemon with artifact bundle + metadata
+     - On FAILED: useTrainingStore.handleTrainingFailed() with RunPod error message
+     - Clears interval on completion or component unmount
+
+     11.3 — RunPod Worker (runpod/worker.py)
+
+     Mirrors the daemon training pipeline:
+     - Accepts ModelConfig JSON from environment variable or mounted file
+     - Runs full data pipeline (same code as daemon; shared as a Python package)
+     - Saves artifacts to S3/RunPod volume
+     - Returns signed download URLs in job output
+
+     Dockerfile: Based on runpod/pytorch:2.x-py3.10-cuda12.x-devel; copies requirements.txt and worker.py.
+
+     11.4 — Simulation Data Files
+
+     Generate public/sim_data/{SPY,AAPL,NVDA,TSLA}_sim.json — each contains one complete trading day (6–7 hourly bars) of OHLCV
+     data in the live bar JSON format from PRD §4.6. These can be manually curated from yfinance historical data for a visually
+     interesting demo day (e.g., a high-volatility day).
+
+     Verification: Trigger a RunPod training job (or mock with a stub endpoint); verify polling; verify artifact download; verify
+     registry populated and model appears in Evaluation Deck.
+
+     ---
+     Phase 12 — Integration Testing & Vercel Deployment
+
+     Goal: End-to-end smoke test across all flows; configure Vercel deployment.
+
+     12.1 — Integration Smoke Tests
+
+     Run the following flows manually in browser:
+
+     1. Full training flow: Start daemon → load app → Architecture Forge → Step 1 (SPY) → Fetch & Preview (sparkline appears) →
+     Step 2 (DWT) → Step 3 (BiLSTM) → Step 4 (defaults) → Step 5 (Local) → Step 6 (Start Training) → Drawer opens → Loss chart
+     updates per epoch → TRAINING_COMPLETE → drawer closes → Evaluation Deck shows new model
+     2. Evaluation flow: Switch to Evaluation Deck → model appears in Control Panel → toggle model → line appears on chart ≤
+     300ms → enable ARIMA → spinner → ARIMA metrics → Compare All → all models checked → metrics table populated
+     3. Simulation flow: Click Simulation → SIMULATION banner appears → inference lines append → speed control changes rate →
+     simulation completes
+     4. Error flows: Kill daemon mid-training; disconnect Alpaca; test weights-missing badge
+
+     12.2 — Unit Tests
+
+     __tests__/ in frontend; tests/ in daemon:
+     - Daemon: test_metrics.py (RMSE/MAE/MAPE/DA correctness), test_scaling.py (round-trip), test_windowing.py (boundary rules),
+     test_arima.py (smoke run)
+     - Frontend: store action tests for editStep() downstream reset, assignColor() cycle, handleEpochMetric() log-line cap at 200
+
+     12.3 — Vercel Deployment
+
+     - frontend/vercel.json or next.config.ts — no special config needed for App Router
+     - API keys are stored client-side in localStorage only and never persisted server-side. The RunPod key is transmitted
+     transiently through the Next.js /api/runpod/trigger route solely to initiate the job and is not logged or stored.
+     - Add production Vercel URL to daemon config.yaml CORS origins list
+     - Add frontend/ as the Vercel project root
+     - Mixed-content / private-network warning: A Vercel HTTPS frontend (https://) cannot connect to ws://127.0.0.1:8765 in
+     Chrome without the Private Network Access permission header, and mixed-content rules will block it. For the live demo,
+     running the app locally via next dev (http://localhost:3000) sidesteps this entirely. For the deployed Vercel URL, the user
+     must either run the daemon with a self-signed TLS cert (wss://) or rely on the local dev URL for the actual presentation.
+     Document this clearly in the project README.
+
+     ---
+     Critical Files & Contracts
+
+     Must-Not-Violate Rules (from CLAUDE.md)
+
+     - Never store registry data in localStorage — always read from GET /api/registry
+     - Never run ARIMA in the browser or Vercel function — only POST /api/arima to daemon
+     - Never fit scalers/denoisers on val/test/live data
+     - Never add a date picker (Step 1 always uses last 2 years)
+     - TFT must use the pytorch_forecasting.TimeSeriesDataSet branch — never the generic tensor path
+     - WebSocket instance never stored in Zustand — lives in daemonSocket.ts singleton
+     - Chart appends must use chart.update('none') — never animated
+
+     Key Contracts (exact payloads from SystemArchitecture_Specs §4)
+
+     - PING → READY handshake
+     - START_TRAINING payload with run_id + configuration
+     - STOP_TRAINING → { "action": "STOP_TRAINING", "run_id": "..." } (client → daemon; daemon sets cancellation event; emits
+     TRAINING_FAILED with message "Cancelled by user")
+     - EPOCH_METRIC, TRAINING_COMPLETE, TRAINING_FAILED event shapes
+     - INFER + INFER_RESULT shapes
+     - All four REST registry endpoints
+     - GET /api/data-preview?ticker=X (added in Phase 6)
+
+     localStorage Keys
+
+     qf_alpaca_key, qf_alpaca_secret, qf_runpod_key,
+     qf_daemon_url, qf_default_ticker, qf_sim_speed
+
+     ---
+     Verification Checklist (Final)
+
+     - [ ] Daemon starts on 127.0.0.1:8765; PING/READY handshake works; cuda_available is true on GPU machine
+     - [ ] Full training flow (LSTM, 5 epochs, SPY): 5 artifact files exist in ./models/ (.pt, _scaler.joblib, _config.json,
+     _metrics.json, _denoiser.json)
+     - [ ] EPOCH_METRIC streams render in Recharts loss chart ≤ 500ms latency
+     - [ ] Registry populated in SQLite; GET /api/registry returns the run record
+     - [ ] ARIMA walk-forward forecasts run in < 30s; metrics are computed on out-of-sample test set
+     - [ ] Windowing produces ≈ 2400 train / 300 val / 300 test windows for SPY with L=48 (no windows lost due to normal
+     overnight gaps)
+     - [ ] Evaluation Deck shows trained model in Control Panel after tab activation
+     - [ ] Model toggle adds/removes chart line ≤ 300ms
+     - [ ] ARIMA triggered on-demand; spinner → metrics populated; switching ticker resets ARIMA state
+     - [ ] Live inference: send a mock INFER message; verify denoised + scaled → forward pass → inverse-transform → INFER_RESULT
+     with reasonable USD value
+     - [ ] Simulation mode: SIMULATION banner visible; inference lines append; speed control changes rate
+     - [ ] All 6 wizard steps navigate correctly; edit-step resets downstream; RunPod branch dispatches to API route not daemon
+     WS
+     - [ ] Settings Dialog persists to localStorage; Test Connection sends PING and reports result
+     - [ ] Settings Dialog persists to localStorage; Test Connection sends PING and reports result
+     - [ ] Daemon offline banner shows when daemon is not running; auto-reconnect on reconnect attempts
+     - [ ] TFT training smoke test: dispatches without crash on PyTorch Lightning path
+     - [ ] Local dev (localhost:3000) connects to daemon without mixed-content errors; README documents this constraint for
+     Vercel demo URL

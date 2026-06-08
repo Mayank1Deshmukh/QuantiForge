@@ -1,0 +1,9 @@
+[
+  {"ticker":"TSLA","timestamp":"2025-01-15T14:30:00Z","open":408.50,"high":412.30,"low":406.90,"close":410.74,"volume":18934521},
+  {"ticker":"TSLA","timestamp":"2025-01-15T15:30:00Z","open":410.74,"high":416.80,"low":409.20,"close":414.32,"volume":16847203},
+  {"ticker":"TSLA","timestamp":"2025-01-15T16:30:00Z","open":414.32,"high":418.50,"low":412.60,"close":416.89,"volume":15203456},
+  {"ticker":"TSLA","timestamp":"2025-01-15T17:30:00Z","open":416.89,"high":417.40,"low":410.30,"close":411.54,"volume":17456781},
+  {"ticker":"TSLA","timestamp":"2025-01-15T18:30:00Z","open":411.54,"high":415.20,"low":409.80,"close":413.91,"volume":16012847},
+  {"ticker":"TSLA","timestamp":"2025-01-15T19:30:00Z","open":413.91,"high":420.10,"low":413.40,"close":418.67,"volume":19234512},
+  {"ticker":"TSLA","timestamp":"2025-01-15T20:30:00Z","open":418.67,"high":422.30,"low":417.80,"close":421.04,"volume":24456789}
+]

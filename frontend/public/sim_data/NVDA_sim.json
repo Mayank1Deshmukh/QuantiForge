@@ -1,0 +1,9 @@
+[
+  {"ticker":"NVDA","timestamp":"2025-01-15T14:30:00Z","open":138.20,"high":139.85,"low":137.60,"close":139.10,"volume":42341098},
+  {"ticker":"NVDA","timestamp":"2025-01-15T15:30:00Z","open":139.10,"high":141.30,"low":138.80,"close":140.74,"volume":38904712},
+  {"ticker":"NVDA","timestamp":"2025-01-15T16:30:00Z","open":140.74,"high":142.20,"low":139.90,"close":141.58,"volume":35127834},
+  {"ticker":"NVDA","timestamp":"2025-01-15T17:30:00Z","open":141.58,"high":142.05,"low":138.40,"close":139.23,"volume":40236781},
+  {"ticker":"NVDA","timestamp":"2025-01-15T18:30:00Z","open":139.23,"high":141.10,"low":138.70,"close":140.85,"volume":37894521},
+  {"ticker":"NVDA","timestamp":"2025-01-15T19:30:00Z","open":140.85,"high":143.40,"low":140.50,"close":142.97,"volume":44123456},
+  {"ticker":"NVDA","timestamp":"2025-01-15T20:30:00Z","open":142.97,"high":144.20,"low":142.30,"close":143.64,"volume":52456789}
+]

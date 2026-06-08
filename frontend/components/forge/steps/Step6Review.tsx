@@ -5,6 +5,7 @@ import { useBuilderStore } from "@/stores/useBuilderStore"
 import { useTrainingStore } from "@/stores/useTrainingStore"
 import { useSystemStore } from "@/stores/useSystemStore"
 import { daemonSocket } from "@/lib/daemonSocket"
+import { startRunpodPoller } from "@/lib/runpodPoller"
 import { Loader2, Rocket } from "lucide-react"
 import { toast } from "sonner"
 
@@ -89,7 +90,9 @@ export function Step6Review() {
         if (!res.ok) throw new Error(`RunPod trigger failed: HTTP ${res.status}`)
         const { job_id } = await res.json()
         setRunpodJobId(job_id)
-        toast.success("RunPod job started")
+        // Start polling — key is read here from localStorage, used transiently, never stored
+        startRunpodPoller(pendingRunId, job_id, endpointId, runpodKey)
+        toast.success("RunPod job started — polling for completion…")
       } catch (e) {
         toast.error((e as Error).message)
         return

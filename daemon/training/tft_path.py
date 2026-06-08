@@ -134,8 +134,11 @@ async def run_tft_training(ws, run_id, config, models_dir, cancel_event):
         joblib.dump(scalers, os.path.join(models_dir, f"{run_id}_scaler.joblib"))
         with open(os.path.join(models_dir, f"{run_id}_config.json"), "w") as f:
             json.dump(config, f)
+        # Include predictions so the Evaluation Deck can backfill the chart line
+        metrics_to_save = dict(metrics)
+        metrics_to_save["predictions"] = y_pred_usd.round(4).tolist()
         with open(os.path.join(models_dir, f"{run_id}_metrics.json"), "w") as f:
-            json.dump(metrics, f)
+            json.dump(metrics_to_save, f)
         with open(os.path.join(models_dir, f"{run_id}_denoiser.json"), "w") as f:
             json.dump(denoiser_params, f)
 

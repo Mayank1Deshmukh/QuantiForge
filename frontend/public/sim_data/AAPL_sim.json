@@ -1,0 +1,9 @@
+[
+  {"ticker":"AAPL","timestamp":"2025-01-15T14:30:00Z","open":235.10,"high":236.40,"low":234.80,"close":235.78,"volume":8934521},
+  {"ticker":"AAPL","timestamp":"2025-01-15T15:30:00Z","open":235.78,"high":237.90,"low":235.20,"close":237.15,"volume":7621034},
+  {"ticker":"AAPL","timestamp":"2025-01-15T16:30:00Z","open":237.15,"high":238.50,"low":236.40,"close":237.82,"volume":6847203},
+  {"ticker":"AAPL","timestamp":"2025-01-15T17:30:00Z","open":237.82,"high":238.10,"low":235.60,"close":236.04,"volume":7203456},
+  {"ticker":"AAPL","timestamp":"2025-01-15T18:30:00Z","open":236.04,"high":237.45,"low":234.90,"close":236.91,"volume":8012847},
+  {"ticker":"AAPL","timestamp":"2025-01-15T19:30:00Z","open":236.91,"high":239.20,"low":236.50,"close":238.74,"volume":9234512},
+  {"ticker":"AAPL","timestamp":"2025-01-15T20:30:00Z","open":238.74,"high":239.80,"low":238.10,"close":239.23,"volume":11456789}
+]
